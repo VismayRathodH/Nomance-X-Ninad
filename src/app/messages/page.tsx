@@ -18,7 +18,11 @@ export default function MessagesListPage() {
     const fetchChats = async () => {
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
-        const activeUser = authUser || { id: "00000000-0000-0000-0000-000000000001", email: "guest@example.com" };
+        if (!authUser) {
+          setLoading(false);
+          return;
+        }
+        const activeUser = authUser;
         setUser(activeUser);
 
         // Fetch accepted matches

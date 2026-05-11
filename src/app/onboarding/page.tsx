@@ -51,7 +51,6 @@ export default function OnboardingPage() {
         try {
           const { data: { user: authUser } } = await supabase.auth.getUser();
           if (!authUser) {
-            console.warn("No authenticated user found, redirecting to auth");
             router.push("/auth");
             return;
           }

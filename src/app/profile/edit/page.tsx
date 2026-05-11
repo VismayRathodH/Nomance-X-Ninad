@@ -51,8 +51,12 @@ export default function EditProfilePage() {
     try {
       setLoading(true);
       const { data: { user: authUser } } = await supabase.auth.getUser();
-      const activeUserId = authUser?.id || "00000000-0000-0000-0000-000000000001";
-      setUser(authUser || { id: activeUserId, email: "guest@example.com" });
+      if (!authUser) {
+        router.push("/auth");
+        return;
+      }
+      const activeUserId = authUser.id;
+      setUser(authUser);
 
       const { data, error } = await supabase
         .from("profiles")
@@ -94,9 +98,6 @@ export default function EditProfilePage() {
     try {
       setSaving(true);
 
-      // Photos are handled separately by PhotoUpload component
-      // We only save avatar_url which is set from the first photo
-
       // Clean up the profile data before saving
       const profileData = {
         id: user.id,
@@ -112,12 +113,10 @@ export default function EditProfilePage() {
       };
 
       console.log("🔵 Saving profile data:", profileData);
-      console.log("🔵 Username value:", profileData.username);
-      console.log("🔵 Bio value:", profileData.bio);
 
-      const { data: upsertData, error } = await supabase
+      const { error } = await supabase
         .from("profiles")
-        .upsert(profileData, { onConflict: 'id' });
+        .upsert(profileData);
 
       if (error) {
         console.error("❌ Supabase upsert error details:", error);
@@ -127,15 +126,13 @@ export default function EditProfilePage() {
       console.log("✅ Profile saved successfully");
       toast.success("Profile updated successfully!");
 
-      // Refresh the page to show updated data
-      await fetchProfile();
+      // Wait a bit for Supabase to propagate changes
       setTimeout(() => {
         router.push("/profile");
-      }, 500);
+      }, 1000);
     } catch (error: any) {
       console.error("❌ Detailed error updating profile:", error);
-      const errorMessage = error.message || "Failed to update profile";
-      toast.error(errorMessage);
+      toast.error(error.message || "Failed to update profile");
     } finally {
       setSaving(false);
     }

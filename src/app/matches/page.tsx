@@ -154,6 +154,23 @@ export default function MatchesPage() {
   useEffect(() => {
     fetchAllData();
 
+    // Subscribe to matches table changes
+    const matchesSubscription = supabase
+      .channel('matches_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'matches',
+        },
+        () => {
+          console.log("Realtime match update received, refreshing data...");
+          fetchAllData();
+        }
+      )
+      .subscribe();
+
     // Refresh data when visibility changes (user comes back to tab)
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -165,6 +182,7 @@ export default function MatchesPage() {
     window.addEventListener('focus', fetchAllData);
 
     return () => {
+      supabase.removeChannel(matchesSubscription);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', fetchAllData);
     };

@@ -28,13 +28,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const checkUser = async () => {
       try {
-        const adminBypass = typeof window !== "undefined" && localStorage.getItem("adminBypass") === "true";
         const { data: { session } } = await supabase.auth.getSession();
         setUser(session?.user ?? null);
-        
-        if (!session && !adminBypass && pathname !== "/auth" && !pathname.startsWith("/auth/")) {
-          router.replace("/auth");
-        }
       } catch (error) {
         console.error("Auth check error:", error);
       } finally {
@@ -49,11 +44,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const currentUser = session?.user ?? null;
         setUser(currentUser);
         setLoading(false);
-
-        const adminBypass = typeof window !== "undefined" && localStorage.getItem("adminBypass") === "true";
-        if (!currentUser && !adminBypass && pathname !== "/auth" && !pathname.startsWith("/auth/")) {
-          router.replace("/auth");
-        }
       }
     );
 

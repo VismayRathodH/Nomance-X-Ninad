@@ -58,7 +58,11 @@ export default function MessageDetailPage({ params }: { params: Promise<{ id: st
     const fetchData = async () => {
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
-        const activeUser = authUser || { id: "00000000-0000-0000-0000-000000000001", email: "guest@example.com" };
+        if (!authUser) {
+          router.push("/auth");
+          return;
+        }
+        const activeUser = authUser;
         if (!mounted) return;
         setUser(activeUser);
 

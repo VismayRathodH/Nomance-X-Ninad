@@ -25,7 +25,25 @@ export async function middleware(request: NextRequest) {
         }
     )
 
-    await supabase.auth.getUser()
+    const { data: { user } } = await supabase.auth.getUser()
+
+    // Protected routes logic
+    const isAuthPage = request.nextUrl.pathname.startsWith('/auth')
+    const isPublicAsset = request.nextUrl.pathname.match(/\.(svg|png|jpg|jpeg|gif|webp|ico)$/)
+
+    if (!user && !isAuthPage && !isPublicAsset) {
+        // Redirect to login if not authenticated and trying to access a protected route
+        const url = request.nextUrl.clone()
+        url.pathname = '/auth'
+        return NextResponse.redirect(url)
+    }
+
+    if (user && isAuthPage) {
+        // Redirect to home if already authenticated and trying to access auth page
+        const url = request.nextUrl.clone()
+        url.pathname = '/social'
+        return NextResponse.redirect(url)
+    }
 
     return supabaseResponse
 }

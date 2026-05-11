@@ -392,6 +392,31 @@ export default function SocialPage() {
 
   useEffect(() => {
     fetchData();
+
+    // Subscribe to social changes
+    const socialSubscription = supabase
+      .channel('social_realtime')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'posts' },
+        () => {
+          console.log("Realtime post update, refreshing...");
+          fetchData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'stories' },
+        () => {
+          console.log("Realtime story update, refreshing...");
+          fetchData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(socialSubscription);
+    };
   }, []); 
 
     const handleMatchAction = async (targetUserId: string, action: 'spark' | 'pass', postId: string) => {
@@ -403,7 +428,7 @@ export default function SocialPage() {
       if (action === 'pass') {
           setPosts(prev => prev.filter(p => p.id !== postId));
           
-          if (user?.id && user.id !== "00000000-0000-0000-0000-000000000001") {
+          if (user?.id) {
             await supabase.from("post_skips").insert({
               user_id: user.id,
               post_id: postId

@@ -82,46 +82,133 @@ const EVENT_TYPE_STYLES = {
 export default function EventsPage() {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [events, setEvents] = useState(SAMPLE_EVENTS);
+  const [events, setEvents] = useState<any[]>([]);
+  const [rooms, setRooms] = useState<any[]>([]);
   const [joinedEvents, setJoinedEvents] = useState<string[]>([]);
   const [joinedRooms, setJoinedRooms] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const router = useRouter();
 
-      useEffect(() => {
-        const fetchUser = async () => {
-          try {
-            const { data: { user } } = await supabase.auth.getUser();
-            const activeUser = user || { id: "00000000-0000-0000-0000-000000000001", email: "guest@example.com" };
-            setUser(activeUser);
-          } catch (error) {
-            console.error("Events auth check error:", error);
-            // Fallback to guest for now
-            setUser({ id: "00000000-0000-0000-0000-000000000001", email: "guest@example.com" });
-          } finally {
-            setLoading(false);
-          }
-        };
-        fetchUser();
-      }, [router]);
+  const fetchEventsAndRooms = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-  const handleJoinEvent = (eventId: string) => {
-    if (joinedEvents.includes(eventId)) {
-      setJoinedEvents(prev => prev.filter(id => id !== eventId));
-      toast.info("You've left the event");
-    } else {
-      setJoinedEvents(prev => [...prev, eventId]);
-      toast.success("You're in! Check your email for details.");
+      // Fetch Events
+      const { data: eventsData } = await supabase
+        .from('events')
+        .select('*, host:profiles(full_name, avatar_url)')
+        .order('event_date', { ascending: true });
+      
+      setEvents(eventsData || []);
+
+      // Fetch Rooms
+      const { data: roomsData } = await supabase
+        .from('interest_rooms')
+        .select('*')
+        .order('name', { ascending: true });
+      
+      setRooms(roomsData || []);
+
+      // Fetch Joined Events
+      const { data: joinedEventsData } = await supabase
+        .from('event_participants')
+        .select('event_id')
+        .eq('user_id', user.id);
+      
+      setJoinedEvents(joinedEventsData?.map(j => j.event_id) || []);
+
+      // Fetch Joined Rooms
+      const { data: joinedRoomsData } = await supabase
+        .from('room_members')
+        .select('room_id')
+        .eq('user_id', user.id);
+      
+      setJoinedRooms(joinedRoomsData?.map(j => j.room_id) || []);
+
+    } catch (error) {
+      console.error("Error fetching events:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleJoinRoom = (roomId: string) => {
-    if (joinedRooms.includes(roomId)) {
-      setJoinedRooms(prev => prev.filter(id => id !== roomId));
-      toast.info("You've left the room");
-    } else {
-      setJoinedRooms(prev => [...prev, roomId]);
-      toast.success("Welcome to the community!");
+  useEffect(() => {
+    const init = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        router.push("/auth");
+        return;
+      }
+      setUser(user);
+      await fetchEventsAndRooms();
+    };
+
+    init();
+
+    // Realtime subscriptions
+    const eventsChannel = supabase
+      .channel('events_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events' }, () => fetchEventsAndRooms())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'event_participants' }, () => fetchEventsAndRooms())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'interest_rooms' }, () => fetchEventsAndRooms())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_members' }, () => fetchEventsAndRooms())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(eventsChannel);
+    };
+  }, [router]);
+
+  const handleJoinEvent = async (eventId: string) => {
+    if (!user) return;
+
+    try {
+      if (joinedEvents.includes(eventId)) {
+        await supabase
+          .from('event_participants')
+          .delete()
+          .eq('event_id', eventId)
+          .eq('user_id', user.id);
+        
+        setJoinedEvents(prev => prev.filter(id => id !== eventId));
+        toast.info("You've left the event");
+      } else {
+        await supabase
+          .from('event_participants')
+          .insert({ event_id: eventId, user_id: user.id });
+        
+        setJoinedEvents(prev => [...prev, eventId]);
+        toast.success("You're in! Check your email for details.");
+      }
+    } catch (error) {
+      toast.error("Failed to update status");
+    }
+  };
+
+  const handleJoinRoom = async (roomId: string) => {
+    if (!user) return;
+
+    try {
+      if (joinedRooms.includes(roomId)) {
+        await supabase
+          .from('room_members')
+          .delete()
+          .eq('room_id', roomId)
+          .eq('user_id', user.id);
+        
+        setJoinedRooms(prev => prev.filter(id => id !== roomId));
+        toast.info("You've left the room");
+      } else {
+        await supabase
+          .from('room_members')
+          .insert({ room_id: roomId, user_id: user.id });
+        
+        setJoinedRooms(prev => [...prev, roomId]);
+        toast.success("Welcome to the community!");
+      }
+    } catch (error) {
+      toast.error("Failed to join room");
     }
   };
 
@@ -132,7 +219,7 @@ export default function EventsPage() {
 
   const filteredEvents = events.filter(event => 
     event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    event.interest_tags.some(tag => tag.toLowerCase().includes(searchQuery.toLowerCase()))
+    (event.interest_tags || []).some((tag: string) => tag.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   if (loading) {
@@ -238,9 +325,10 @@ export default function EventsPage() {
                     <div className="flex items-center justify-between pt-2 border-t border-border">
                       <div className="flex items-center gap-2">
                         <Avatar className="w-6 h-6">
-                          <AvatarFallback className="bg-secondary text-primary text-xs">{event.host.name[0]}</AvatarFallback>
+                          <AvatarImage src={event.host?.avatar_url} />
+                          <AvatarFallback className="bg-secondary text-primary text-xs">{event.host?.full_name?.[0] || '?'}</AvatarFallback>
                         </Avatar>
-                        <span className="text-sm text-muted-foreground">Hosted by {event.host.name}</span>
+                        <span className="text-sm text-muted-foreground">Hosted by {event.host?.full_name || 'Anonymous'}</span>
                       </div>
                       <Button 
                         size="sm" 
@@ -343,7 +431,7 @@ export default function EventsPage() {
               </div>
 
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {INTEREST_ROOMS.map((room) => (
+                {rooms.map((room) => (
                   <Card 
                     key={room.id} 
                     className={`border-border bg-card cursor-pointer hover:shadow-lg transition-all ${joinedRooms.includes(room.id) ? "ring-2 ring-primary" : ""}`}
@@ -351,15 +439,16 @@ export default function EventsPage() {
                   >
                     <CardContent className="p-4">
                       <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center">
-                          <room.icon className="w-6 h-6 text-primary" />
+                        <div className="w-12 h-12 rounded-xl bg-accent/20 flex items-center justify-center text-primary">
+                          <Users className="w-6 h-6" />
                         </div>
                         <div className="flex-grow">
                           <h3 className="font-black tracking-tighter text-primary">{room.name}</h3>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Users className="w-3 h-3" />
-                            {room.members} members
-                            {room.active && (
+                            {/* In a real app we'd join to get member count */}
+                            Join the discussion
+                            {room.is_active && (
                               <span className="flex items-center gap-1 text-green-600">
                                 <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                                 Active
